@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Quran Vision App</title>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>🕋 Quran Vision App</h1>
+    <button class="login-btn">Login</button>
+  </header>
+
+  <div class="container">
+    <!-- Left Panel -->
+    <div class="left-panel">
+      <h2>📷 Gesture Webcam</h2>
+      <div class="webcam-box">
+        <img id="video-feed" src="/video_feed" alt="Webcam Feed">
+      </div>
+
+      <p id="gesture-text">Gesture: None</p>
+
+      <div class="bar-section">
+        <div class="bar-label">
+          🔊 Volume: <span id="vol-value">80%</span>
+        </div>
+        <div class="bar-container"><div id="vol-bar" class="bar-fill" style="width:80%"></div></div>
+
+        <div class="bar-label">
+          ⚡ Speed: <span id="speed-value">1.00x</span>
+        </div>
+        <div class="bar-container"><div id="speed-bar" class="bar-fill" style="width:33%"></div></div>
+      </div>
+
+      <div class="gesture-guide">
+        <h3>🖐 Gestures</h3>
+        <ul>
+          <li>🖖 Fingers → Scroll Up</li>
+          <li>🖐️ Fingers → Scroll Down</li>
+          <li>👉 Index → Loop visible Surahs (hold)</li>
+          <li>👌 Pinch → Play/Open</li>
+          <li>✌ Pause | ✊ Vol+ | ☝☝☝ Vol-</li>
+          <li>🤙 Speed+ | 🖖 Speed-</li>
+          <li>✋✋ Two Hands → Back</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Right Panel: Surah List -->
+    <div class="right-panel" id="surah-list-section">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="🔍 Search Surah..." />
+      </div>
+      <h2>📖 Surah List</h2>
+      <div id="surah-list"></div>
+    </div>
+
+    <!-- Right Panel: Surah View -->
+    <div class="right-panel surah-view" id="surah-view" style="display:none;">
+      <div class="surah-content">
+        <h2 id="surah-title"></h2>
+        <button id="back-btn">⬅ Back</button>
+         <audio id="audio-player" controls></audio>
+        <div id="surah-text"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const surahListDiv = document.getElementById("surah-list");
+    const surahListSection = document.getElementById("surah-list-section");
+    const surahViewDiv = document.getElementById("surah-view");
+    const surahTextDiv = document.getElementById("surah-text");
+    const audioPlayer = document.getElementById("audio-player");
+    const volBar = document.getElementById("vol-bar");
+    const speedBar = document.getElementById("speed-bar");
+    const volValue = document.getElementById("vol-value");
+    const speedValue = document.getElementById("speed-value");
+    const searchInput = document.getElementById("search-input");
+
+    let highlightedBtn = null;
+    let gestureLock = false;
+    let lastGesture = null;
+    let allSurahs = [];
+
+    async function loadSurahList() {
+      const res = await fetch("https://api.quran.com/api/v4/chapters");
+      const data = await res.json();
+      allSurahs = data.chapters;
+      renderSurahList(allSurahs);
+    }
+
+    function renderSurahList(list) {
+      surahListDiv.innerHTML = "";
+      list.forEach(surah => {
+        const btn = document.createElement("button");
+        btn.className = "surah-btn";
+        btn.textContent = `${surah.id}. ${surah.name_simple} (${surah.name_arabic})`;
+        btn.dataset.surahId = surah.id;
+        btn.onclick = () => openSurah(surah.id, surah.name_simple);
+        surahListDiv.appendChild(btn);
+      });
+    }
+
+    searchInput.addEventListener("input", e => {
+      const query = e.target.value.toLowerCase();
+      const filtered = allSurahs.filter(s => 
+        s.name_simple.toLowerCase().includes(query) || 
+        s.name_arabic.toLowerCase().includes(query)
+      );
+      renderSurahList(filtered);
+    });
+
+    async function openSurah(id, name) {
+      surahListSection.style.display = "none";
+      surahViewDiv.style.display = "block";
+      document.getElementById("surah-title").textContent = name;
+      surahTextDiv.innerHTML = "";
+      const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${id}`);
+      const data = await res.json();
+      data.verses.forEach(v => {
+        const p = document.createElement("p");
+        p.textContent = v.text_uthmani;
+        surahTextDiv.appendChild(p);
+      });
+      const res2 = await fetch(`https://api.quran.com/api/v4/chapter_recitations/1/${id}`);
+      const a = await res2.json();
+      audioPlayer.src = a.audio_file.audio_url;
+      audioPlayer.volume = 0.8;
+      audioPlayer.playbackRate = 1.0;
+      updateBars();
+    }
+
+    document.getElementById("back-btn").onclick = () => {
+      surahViewDiv.style.display = "none";
+      surahListSection.style.display = "block";
+      audioPlayer.pause();
+    };
+
+    function getActiveScrollContainer() {
+      return surahViewDiv.style.display !== "none" ? surahTextDiv : surahListDiv;
+    }
+
+    function getVisibleButtons() {
+      const buttons = Array.from(document.querySelectorAll(".surah-btn"));
+      const rect = surahListDiv.getBoundingClientRect();
+      return buttons.filter(b => {
+        const r = b.getBoundingClientRect();
+        return r.bottom >= rect.top && r.top <= rect.bottom;
+      });
+    }
+
+    function updateBars() {
+      volBar.style.width = (audioPlayer.volume * 100) + "%";
+      volValue.textContent = Math.round(audioPlayer.volume * 100) + "%";
+      const pr = audioPlayer.playbackRate;
+      const pct = ((pr - 0.5) / 1.5) * 100;
+      speedBar.style.width = pct + "%";
+      speedValue.textContent = pr.toFixed(2) + "x";
+    }
+
+    function handleSelectVisible() {
+  const visible = getVisibleButtons();
+  if (!visible.length) return;
+
+  // Keep selection cycling only through currently visible buttons
+  if (highlightedBtn && visible.includes(highlightedBtn)) {
+    const idx = visible.indexOf(highlightedBtn);
+    highlightedBtn.classList.remove("selected");
+    highlightedBtn = visible[(idx + 1) % visible.length];
+  } else {
+    if (highlightedBtn) highlightedBtn.classList.remove("selected");
+    highlightedBtn = visible[0];
+  }
+
+  highlightedBtn.classList.add("selected");
+  highlightedBtn.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+    async function performAction(g) {
+      if (gestureLock || g === "none" || g === lastGesture) return;
+      gestureLock = true;
+      lastGesture = g;
+      const active = getActiveScrollContainer();
+
+      switch (g) {
+        case "scroll_up": active.scrollBy({ top:-220, behavior:"smooth"}); break;
+        case "scroll_down": active.scrollBy({ top:220, behavior:"smooth"}); break;
+        case "select":
+          if (surahListSection.style.display !== "none") handleSelectVisible();
+          break;
+        case "play":
+          if (highlightedBtn && surahListSection.style.display !== "none") {
+            const id = highlightedBtn.dataset.surahId;
+            const name = highlightedBtn.textContent;
+            highlightedBtn.classList.remove("selected");
+            highlightedBtn = null;
+            await openSurah(id, name);
+            setTimeout(()=>{audioPlayer.play().catch(()=>{});},600);
+          } else if (audioPlayer.src) audioPlayer.play();
+          break;
+        case "pause": if (audioPlayer.src) audioPlayer.pause(); break;
+        case "volume_up":
+          audioPlayer.volume = Math.min(1, audioPlayer.volume + 0.1);
+          updateBars(); break;
+        case "volume_down":
+          audioPlayer.volume = Math.max(0, audioPlayer.volume - 0.1);
+          updateBars(); break;
+        case "speed_up":
+          audioPlayer.playbackRate = Math.min(2, audioPlayer.playbackRate + 0.25);
+          updateBars(); break;
+        case "speed_down":
+          audioPlayer.playbackRate = Math.max(0.5, audioPlayer.playbackRate - 0.25);
+          updateBars(); break;
+        case "back": document.getElementById("back-btn").click(); break;
+      }
+      setTimeout(()=>{gestureLock=false; lastGesture=null;},1500);
+    }
+
+    function startGesturePolling() {
+      setInterval(async ()=> {
+        try {
+          const res = await fetch("/gesture");
+          const j = await res.json();
+          if (j && j.gesture) performAction(j.gesture);
+        } catch(e){}
+      }, 600);
+    }
+
+    loadSurahList();
+    startGesturePolling();
+  </script>
+</body>
+</html>
